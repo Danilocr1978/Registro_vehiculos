@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Control de Acceso Vehicular</title>
+  <style>
+    :root { --primary: #0066cc; --bg: #f4f6f8; --success: #28a745; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 15px; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    h2 { text-align: center; color: var(--primary); margin-top: 0; }
+    .form-group { margin-bottom: 15px; }
+    label { font-weight: 600; display: block; margin-bottom: 5px; }
+    input[type="text"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+    .photo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+    .photo-card { border: 2px dashed #ccc; padding: 10px; text-align: center; border-radius: 8px; background: #fafafa; cursor: pointer; transition: border-color 0.2s; }
+    .photo-card:hover { border-color: var(--primary); }
+    .photo-card span { color: var(--primary); font-size: 14px; font-weight: 500; }
+    .photo-card input[type="file"] { display: none; }
+    .preview { width: 100%; height: 100px; object-fit: cover; border-radius: 4px; display: none; margin-top: 5px; }
+    .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 12px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .status-box { padding: 10px; border-radius: 6px; font-size: 13px; margin-top: 10px; text-align: center; display: none; }
+    .status-box.info { background: #e7f3ff; color: #004085; display: block; }
+    .status-box.success { background: #d4edda; color: #155724; display: block; }
+    .status-box.error { background: #f8d7da; color: #721c24; display: block; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Control Acceso Vehicular</h2>
+  
+  <form id="vehicleForm">
+    <div class="form-group">
+      <label for="eventType">Tipo de Evento</label>
+      <select id="eventType" required>
+        <option value="ENTRADA">ENTRADA</option>
+        <option value="SALIDA">SALIDA</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="plate">Placa del Vehículo</label>
+      <input type="text" id="plate" placeholder="EJ: ABC-1234" required style="text-transform:uppercase;">
+    </div>
+
+    <label>Registro Fotográfico (6 Fotos Obligatorias)</label>
+    <div class="photo-grid">
+      <div class="photo-card">
+        <span>Frente</span>
+        <input type="file" id="foto_frente" accept="image/*" capture="environment" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa frente">
+      </div>
+      <div class="photo-card">
+        <span>Posterior</span>
+        <input type="file" id="foto_posterior" accept="image/*" capture="environment" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa posterior">
+      </div>
+      <div class="photo-card">
+        <span>Lateral Izquierdo</span>
+        <input type="file" id="foto_lat_izq" accept="image/*" capture="environment" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa lateral izquierdo">
+      </div>
+      <div class="photo-card">
+        <span>Lateral Derecho</span>
+        <input type="file" id="foto_lat_der" accept="image/*" capture="environment" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa lateral derecho">
+      </div>
+      <div class="photo-card">
+        <span>Interior / Cojinería</span>
+        <input type="file" id="foto_interior" accept="image/*" capture="environment" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa interior">
+      </div>
+      <div class="photo-card">
+        <span>Conductor</span>
+        <input type="file" id="foto_conductor" accept="image/*" capture="user" required onchange="previewImage(this)">
+        <img class="preview" alt="Vista previa conductor">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="observations">Observaciones</label>
+      <textarea id="observations" rows="3" placeholder="Estado del carro, combustible, mercancía..."></textarea>
+    </div>
+
+    <div class="status-box info" id="geoStatus">📍 Obteniendo coordenadas GPS...</div>
+    <div class="status-box" id="msgStatus"></div>
+
+    <button type="submit" class="btn" id="submitBtn" style="margin-top: 15px;">Guardar y Subir a Google Drive</button>
+  </form>
+</div>
+
+<script>
+  // ⚠️ REEMPLAZA ESTA URL CON TU URL DE DESPLIEGUE DE GOOGLE APPS SCRIPT
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/TU_SCRIPT_ID_AQUI/exec";
+
+  let currentLocation = { lat: null, lng: null };
+
+  window.onload = () => {
+    // Abrir la cámara al hacer clic en la tarjeta
+    document.querySelectorAll('.photo-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          card.querySelector('input[type="file"]').click();
+        }
+      });
+    });
+
+    // Captura de GPS
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          currentLocation.lat = pos.coords.latitude;
+          currentLocation.lng = pos.coords.longitude;
+          document.getElementById('geoStatus').innerText = `📍 GPS Capturado: ${currentLocation.lat.toFixed(5)}, ${currentLocation.lng.toFixed(5)}`;
+        },
+        err => {
+          document.getElementById('geoStatus').innerText = "⚠️ No se pudo obtener GPS (se guardará sin ubicación)";
+        },
+        { enableHighAccuracy: true }
+      );
+    }
+  };
+
+  function previewImage(input) {
+    const preview = input.parentElement.querySelector('.preview');
+    const span = input.parentElement.querySelector('span');
+    if (input.files && input.files[0]) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+        span.style.display = 'none';
+      }
+      reader.readAsDataURL(input.files[0]);
+    }
+  }
+
+  // Envío de datos a Google Apps Script
+  document.getElementById('vehicleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const msgBox = document.getElementById('msgStatus');
+
+    btn.disabled = true;
+    btn.innerText = "⏳ Procesa y subiendo imágenes a Drive...";
+    msgBox.className = "status-box info";
+    msgBox.innerText = "Subiendo 6 imágenes y metadatos a Google Drive. Por favor espera...";
+
+    try {
+      const payload = {
+        tipo: document.getElementById('eventType').value,
+        placa: document.getElementById('plate').value.toUpperCase().trim(),
+        gps: currentLocation,
+        observaciones: document.getElementById('observations').value,
+        fotos: {
+          "1_Frente": await fileToBase64(document.getElementById('foto_frente').files[0]),
+          "2_Posterior": await fileToBase64(document.getElementById('foto_posterior').files[0]),
+          "3_Lateral_Izq": await fileToBase64(document.getElementById('foto_lat_izq').files[0]),
+          "4_Lateral_Der": await fileToBase64(document.getElementById('foto_lat_der').files[0]),
+          "5_Interior": await fileToBase64(document.getElementById('foto_interior').files[0]),
+          "6_Conductor": await fileToBase64(document.getElementById('foto_conductor').files[0])
+        }
+      };
+
+      // Petición HTTP POST hacia Google Apps Script
+      // Se utiliza mode: 'no-cors' para evitar bloqueos por origen cruzado en navegadores móviles
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      msgBox.className = "status-box success";
+      msgBox.innerText = `¡Registro guardado con éxito en Google Drive para la placa ${payload.placa}!`;
+
+      setTimeout(() => {
+        location.reload();
+      }, 2500);
+
+    } catch (error) {
+      console.error(error);
+      msgBox.className = "status-box error";
+      msgBox.innerText = "Error al enviar los datos. Revisa la conexión e intenta de nuevo.";
+      btn.disabled = false;
+      btn.innerText = "Guardar y Subir a Google Drive";
+    }
+  });
+
+  const fileToBase64 = file => new Promise((resolve, reject) => {
+    if (!file) resolve(null);
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
+</script>
+</body>
+</html>
